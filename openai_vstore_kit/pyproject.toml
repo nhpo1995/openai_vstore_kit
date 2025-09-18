@@ -1,0 +1,38 @@
+# File: pyproject.toml
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# Tên package mà người dùng sẽ dùng để `pip install`
+name = "openai_vstore_kit"
+
+# Phiên bản đầu tiên của package
+version = "0.1.0"
+
+# Thông tin tác giả (bạn có thể thay đổi)
+authors = [
+    { name="Phong Nguyen", email="nhpo1995@email.com" },
+]
+
+# Mô tả ngắn gọn về package
+description = "A Python package to manage OpenAI Vector Stores and their files."
+
+# Trỏ đến file README để hiển thị mô tả chi tiết trên PyPI
+readme = "README.md"
+
+# Yêu cầu phiên bản Python tối thiểu
+requires-python = ">=3.8"
+
+# Danh sách các thư viện phụ thuộc
+# Đây là phần quan trọng nhất. Khi người dùng cài đặt package của bạn,
+# pip sẽ tự động cài đặt tất cả các thư viện này.
+dependencies = [
+    "openai>=1.0.0",
+    "pydantic",
+    "requests",
+    "python-dotenv",
+    "loguru",
+    "tqdm",
+]

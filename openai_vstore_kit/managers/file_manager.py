@@ -1,4 +1,4 @@
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Union
 from openai import OpenAI, NOT_GIVEN, NotGiven
 from openai.types import (
     FileChunkingStrategyParam,
@@ -7,8 +7,11 @@ from openai.types import (
     StaticFileChunkingStrategyObjectParam,
 )
 from loguru import logger
+from openai.types.responses.response import Response
+from openai.types.responses.response_output_item import ResponseOutputItem
 import requests
 from io import BytesIO
+import os
 
 
 class FileManager:
@@ -34,9 +37,10 @@ class FileManager:
             file_response = self.client.files.create(file=file_tuple, purpose=purpose)
         else:
             # Handle local file path
-            with open(file_path, "rb") as file_content:
+            with open(file_path, mode="rb") as file_content:
+                file_name = os.path.basename(file_path)
                 file_response = self.client.files.create(
-                    file=file_content, purpose=purpose
+                    file=(file_name, file_content), purpose=purpose
                 )
         return file_response
 
@@ -80,15 +84,13 @@ class FileManager:
             logger.info(
                 f"File uploaded with ID: {file_object.id}. Attaching to vector store..."
             )
+            base_attrs = {"file_name": file_object.filename.lower()}
+            merged_attrs = {**base_attrs, **(attributes or {})}
             vector_store_file = self.client.vector_stores.files.create_and_poll(
                 vector_store_id=self.store_id,
                 file_id=file_object.id,
                 chunking_strategy=chunking_strategy,
-                attributes=(
-                    {"file_name": file_object.filename.lower()}.update(attributes)
-                    if attributes
-                    else {"file_name": file_object.filename.lower()}
-                ),
+                attributes=merged_attrs,
             )
             if vector_store_file:
                 logger.success(
@@ -130,10 +132,18 @@ class FileManager:
     def find_id_by_name(self, file_name: str) -> str:
         name_lc = file_name.lower()
         for file in self.list():
-            attribute = file.get("attributes", "")
-            if attribute:
-                if str(attribute.get("file_name", "")).strip().lower == name_lc:
-                    return str(file.get("id"))
+            attributes = file.get("attributes", "")
+            if attributes is not None:
+                logger.debug(f"attriebutes found:\n{attributes}")
+                file_name = str(attributes.get("file_name", "")).strip().lower()
+                logger.debug(
+                    f"attribute'sfile_name: {file_name} vs search_name: {name_lc}"
+                )
+                if file_name == name_lc:
+                    logger.debug(
+                        f"found file name! {file_name} match search name {name_lc}"
+                    )
+                    return str(object=file.get("id"))
         return ""
 
     def update_attributes(self, attribute: Dict, file_id: str):
@@ -159,5 +169,83 @@ class FileManager:
             logger.error(f"Failed to delete file {file_id}: {e}")
             return False
 
-    def semantic_retrieve(query: str):
-        
+    def semantic_retrieve(
+        self, query: str, model: str = "gpt-4o-mini", top_k: int = 10
+    ) -> Union[Response, str]:
+        """Retrieve only on current store
+
+        Args:
+            query (str): User query
+            model (str): llm model name
+
+        Returns:
+            Response: A Response object of openAI.
+                - To get the answer in text just type Response[1].content[0].text
+                - To get its Annotaions just type Response[1].content[0].annotations
+            "output": [
+                {
+                "type": "file_search_call",
+                "id": "fs_67c09ccea8c48191ade9367e3ba71515",
+                "status": "completed",
+                "queries": ["What is deep research?"],
+                "search_results": null
+                },
+                {
+                    "id": "msg_67c09cd3091c819185af2be5d13d87de",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "Deep research is a sophisticated capability that allows for extensive inquiry and synthesis of information across various domains. It is designed to conduct multi-step research tasks, gather data from multiple online sources, and provide comprehensive reports similar to what a research analyst would produce. This functionality is particularly useful in fields requiring detailed and accurate information...",
+                            "annotations": [
+                                {
+                                    "type": "file_citation",
+                                    "index": 992,
+                                    "file_id": "file-2dtbBZdjtDKS8eqWxqbgDi",
+                                    "filename": "deep_research_blog.pdf"
+                                },
+                                {
+                                    "type": "file_citation",
+                                    "index": 992,
+                                    "file_id": "file-2dtbBZdjtDKS8eqWxqbgDi",
+                                    "filename": "deep_research_blog.pdf"
+                                },
+                            ]
+                        }
+                    ]
+                }
+            ]
+
+        """
+        response = self.client.responses.create(
+            model=model,
+            instructions="You are a helpfull vietnamese assistant that always answer in vietnamese",
+            input=query,
+            tools=[
+                {
+                    "type": "file_search",
+                    "vector_store_ids": [self.store_id],
+                    "max_num_results": top_k,
+                }
+            ],
+            include=["file_search_call.results"],
+        )
+        logger.debug(f"Response:\n{response}")
+        if not response.output:
+            return "No output from AI."
+        for item in response.output:
+            if item.type == "message" and item.content and len(item.content) > 0:
+                return item.content[0].text #type: ignore
+        return "No message content found in the output.."
+
+    def format_results(self, results):
+        formatted_results = ""
+        for result in results.data:
+            formatted_result = (
+                f"<result file_id='{result.file_id}' file_name='{result.file_name}'>"
+            )
+            for part in result.content:
+                formatted_result += f"<content>{part.text}</content>"
+            formatted_results += formatted_result + "</result>"
+        return f"<sources>{formatted_results}</sources>"

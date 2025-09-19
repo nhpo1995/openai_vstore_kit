@@ -1,6 +1,7 @@
 # openai_vstore/models.py
 from pydantic import BaseModel, model_validator
-from typing import Literal
+from typing import Dict, Literal
+from openai.types.vector_store import FileCounts, VectorStore
 
 
 class StaticDetails(BaseModel):
@@ -25,3 +26,10 @@ class StaticStrategy(BaseModel):
 
     type: Literal["static"]
     static: StaticDetails
+
+
+class StoreDetail(BaseModel):
+    id: str
+    name: str
+    created_at: int
+    file_counts: FileCounts

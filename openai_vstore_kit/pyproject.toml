@@ -35,4 +35,5 @@ dependencies = [
     "python-dotenv",
     "loguru",
     "tqdm",
+    "openai-agents"
 ]

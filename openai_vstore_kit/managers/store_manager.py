@@ -25,6 +25,11 @@ class StoreManager:
 
     def find_id_by_name(self, store_name: str) -> Optional[str]:
         """Tìm ID store theo tên (case-insensitive)."""
+        """Get store'id by store's name
+
+        Returns:
+            String: store's id 
+        """
         name_lc = store_name.strip().lower()
         for store in self.list_store():
             if str(store.get("name", "")).strip().lower() == name_lc:
@@ -32,7 +37,11 @@ class StoreManager:
         return None
 
     def create(self, store_name: str) -> Optional[str]:
-        """Creates a new vector store and returns its ID."""
+        """Creates a new vector store and returns its ID.
+
+        Returns:
+            String: Store's id
+        """
         logger.info(f"Creating a new vector store named '{store_name}'...")
         try:
             vector_store = self.client.vector_stores.create(name=store_name)
@@ -45,9 +54,24 @@ class StoreManager:
             return None
 
     def get(self, store_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Lấy thông tin chi tiết của một vector store và trả về dưới dạng dictionary.
-        Lý do: Cung cấp sự linh hoạt khi cần thiết.
+        """Get Store information as Dictionary
+            Ref: https://platform.openai.com/docs/api-reference/vector-stores/list
+        Returns:
+            Dictionary:
+                {
+                    "id": "vs_abc123",
+                    "object": "vector_store",
+                    "created_at": 1699061776,
+                    "name": "Support FAQ",
+                    "bytes": 139920,
+                    "file_counts": {
+                        "in_progress": 0,
+                        "completed": 3,
+                        "failed": 0,
+                        "cancelled": 0,
+                        "total": 3
+                    }
+                }
         """
         logger.info(f"Fetching details for vector store {store_id}...")
         try:
@@ -63,14 +87,30 @@ class StoreManager:
         Ref: https://platform.openai.com/docs/api-reference/vector-stores/list
 
         Returns:
-            List[dict]: stores_as_dicts
+            List[dict]: List of store detail in JSON
+            [
+                {
+                "id": "vs_abc123",
+                "object": "vector_store",
+                "created_at": 1699061776,
+                "name": "Support FAQ",
+                "bytes": 139920,
+                "file_counts": {
+                        "in_progress": 0,
+                        "completed": 3,
+                        "failed": 0,
+                        "cancelled": 0,
+                        "total": 3
+                    }
+                },
+            ]
         """
         logger.info("Fetching all vector stores...")
         stores_as_dicts: List[dict] = []
         try:
             after = None
             while True:
-                resp = self.client.vector_stores.list(limit=100, after=after) #type: ignore
+                resp = self.client.vector_stores.list(limit=100, after=after)  # type: ignore
                 # resp.data: List[VectorStore]
                 page = [vs.model_dump() for vs in resp.data]
                 stores_as_dicts.extend(page)
@@ -111,3 +151,12 @@ class StoreManager:
         except Exception as e:
             logger.error(f"Failed to delete vector store {store_id}: {e}")
             return False
+        
+    def attach_to_assistant(self, assistant_id: str, list_store_id:List[str]):
+        """
+        Gắn vector store vào Assistant (beta.assistants API).
+        """
+        return self.client.beta.assistants.update(
+            assistant_id=assistant_id,
+            tool_resources={"file_search": {"vector_store_ids": list_store_id}},
+        )

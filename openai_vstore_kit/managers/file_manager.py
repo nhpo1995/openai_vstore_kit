@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 from openai import OpenAI, NOT_GIVEN, NotGiven
 from openai.types import (
     FileChunkingStrategyParam,
@@ -40,11 +40,20 @@ class FileManager:
                 )
         return file_response
 
-    def _custom_chunk_strategy(
+    def custom_chunk_strategy(
         self,
-        max_chunk_size: int,
-        chunk_overlap: int,
+        max_chunk_size: int = 800,
+        chunk_overlap: int = 400,
     ) -> StaticFileChunkingStrategyObjectParam:
+        """Create a custom chunking strategy object
+
+        Args:
+            max_chunk_size (int): The maximum number of tokens in each chunk. The default value is `800`. The minimum value is `100` and the maximum value is `4096`.
+            chunk_overlap (int): The number of tokens that overlap between chunks. The default value is `400`.
+            - Overlap cannot be more than half of chunk size!
+        Returns:
+            StaticFileChunkingStrategyObjectParam: FileChunkingStrategyParam
+        """
         custom_chunking_strategy: StaticFileChunkingStrategyObjectParam = {
             "type": "static",
             "static": {
@@ -58,6 +67,7 @@ class FileManager:
         self,
         file_object: FileObject,
         chunking_strategy: FileChunkingStrategyParam | NotGiven = NOT_GIVEN,
+        attributes: Dict = {},
     ) -> Optional[str]:
         """
         Uploads a file and attaches it to the vector store.
@@ -74,6 +84,11 @@ class FileManager:
                 vector_store_id=self.store_id,
                 file_id=file_object.id,
                 chunking_strategy=chunking_strategy,
+                attributes=(
+                    {"file_name": file_object.filename.lower()}.update(attributes)
+                    if attributes
+                    else {"file_name": file_object.filename.lower()}
+                ),
             )
             if vector_store_file:
                 logger.success(
@@ -88,18 +103,44 @@ class FileManager:
     def list(self, limit: int = 100) -> List[dict]:
         """Lists all files in the vector store."""
         logger.info(f"Fetching all files from vector store {self.store_id}...")
+        files_as_dicts: List[dict] = []
         try:
-            all_files = list(
-                self.client.vector_stores.files.list(
-                    vector_store_id=self.store_id, limit=limit
+            after = None
+            while True:
+                resp = self.client.vector_stores.files.list(
+                    vector_store_id=self.store_id, limit=limit, after=after  # type: ignore
                 )
-            )
-            files_as_dicts = [f.model_dump() for f in all_files]
-            logger.info(f"Found {len(files_as_dicts)} files.")
+                page = [f.model_dump() for f in resp.data]
+                files_as_dicts.extend(page)
+                if getattr(resp, "has_more", False):
+                    # last_id có thể có sẵn; fallback lấy id phần tử cuối
+                    after = getattr(resp, "last_id", None) or (
+                        resp.data[-1].id if resp.data else None
+                    )
+                    if not after:
+                        break
+                else:
+                    break
+                logger.info(f"Found {len(files_as_dicts)} files.")
             return files_as_dicts
         except Exception as e:
             logger.error(f"Failed to list files for store {self.store_id}: {e}")
             return []
+
+    def find_id_by_name(self, file_name: str) -> str:
+        name_lc = file_name.lower()
+        for file in self.list():
+            attribute = file.get("attributes", "")
+            if attribute:
+                if str(attribute.get("file_name", "")).strip().lower == name_lc:
+                    return str(file.get("id"))
+        return ""
+
+    def update_attributes(self, attribute: Dict, file_id: str):
+        """Update the attributes to an created file"""
+        self.client.vector_stores.files.update(
+            vector_store_id=self.store_id, file_id=file_id, attributes=attribute
+        )
 
     def delete(self, file_id: str) -> bool:
         """Deletes a file from the vector store."""
@@ -117,3 +158,6 @@ class FileManager:
         except Exception as e:
             logger.error(f"Failed to delete file {file_id}: {e}")
             return False
+
+    def semantic_retrieve(query: str):
+        

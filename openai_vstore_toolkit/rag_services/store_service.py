@@ -1,20 +1,31 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from openai import OpenAI
 from loguru import logger
 
 
-class StoreManager:
-    """Manages the lifecycle of Vector Stores."""
+class StoreService:
+    """Manage the lifecycle of Vector Stores using the OpenAI API.
+    Thin wrapper around the OpenAI VectorStore API.
+    Exposes minimal methods for higher layers (endpoints) to call.
+    """
 
     def __init__(self, client: OpenAI):
         self.client = client
-        self.store_ids = self._list_store_id()
 
-    def get_or_create(self, store_name: str) -> Optional[str]:
-        """
-        Idempotent by store's name:
-        - If store'name is already exist -> fallback to old id
-        - If store'name isn't exist -> create new store then return its ID
+    def get_or_create(self, store_name: str) -> str:
+        """Get or create a vector store by name.
+
+        If the store exists, return its ID.
+        If not, create a new store and return its ID.
+
+        Args:
+            store_name: Name of the store.
+
+        Returns:
+            The vector store ID.
+
+        Raises:
+            Exception: If the API call fails.
         """
         name = store_name.strip()
         existed_id = self.find_id_by_name(name)
@@ -24,11 +35,13 @@ class StoreManager:
         return self.create(name)
 
     def find_id_by_name(self, store_name: str) -> Optional[str]:
-        """Tìm ID store theo tên (case-insensitive)."""
-        """Get store'id by store's name
+        """Find a vector store ID by its name (case-insensitive).
+
+        Args:
+            store_name: Name of the store.
 
         Returns:
-            String: store's id 
+            The store ID if found, otherwise None.
         """
         name_lc = store_name.strip().lower()
         for store in self.list_store():
@@ -36,11 +49,19 @@ class StoreManager:
                 return store.get("id")
         return None
 
-    def create(self, store_name: str) -> Optional[str]:
-        """Creates a new vector store and returns its ID.
+    def create(self, store_name: str) -> str:
+        """Create a new vector store.
+
+        Ref: https://platform.openai.com/docs/api-reference/vector-stores/create
+
+        Args:
+            store_name: Name of the store.
 
         Returns:
-            String: Store's id
+            The new store ID.
+
+        Raises:
+            Exception: If the API call fails.
         """
         logger.info(f"Creating a new vector store named '{store_name}'...")
         try:
@@ -51,27 +72,21 @@ class StoreManager:
             return vector_store.id
         except Exception as e:
             logger.error(f"Failed to create vector store: {e}")
-            return None
+            raise
 
-    def get(self, store_id: str) -> Optional[Dict[str, Any]]:
-        """Get Store information as Dictionary
-            Ref: https://platform.openai.com/docs/api-reference/vector-stores/list
+    def get(self, store_id: str) -> Dict[str, Any]:
+        """Retrieve vector store information as dictionary.
+
+        Ref: https://platform.openai.com/docs/api-reference/vector-stores/retrieve
+
+        Args:
+            store_id: ID of the vector store.
+
         Returns:
-            Dictionary:
-                {
-                    "id": "vs_abc123",
-                    "object": "vector_store",
-                    "created_at": 1699061776,
-                    "name": "Support FAQ",
-                    "bytes": 139920,
-                    "file_counts": {
-                        "in_progress": 0,
-                        "completed": 3,
-                        "failed": 0,
-                        "cancelled": 0,
-                        "total": 3
-                    }
-                }
+            The store details as a dict.
+
+        Raises:
+            Exception: If the API call fails.
         """
         logger.info(f"Fetching details for vector store {store_id}...")
         try:
@@ -79,31 +94,18 @@ class StoreManager:
             return vector_store.model_dump()
         except Exception as e:
             logger.error(f"Failed to retrieve vector store {store_id}: {e}")
-            return None
+            raise
 
     def list_store(self) -> List[dict]:
-        """
-        Lists all vector stores, handling pagination automatically.
+        """List all vector stores with automatic pagination.
+
         Ref: https://platform.openai.com/docs/api-reference/vector-stores/list
 
         Returns:
-            List[dict]: List of store detail in JSON
-            [
-                {
-                "id": "vs_abc123",
-                "object": "vector_store",
-                "created_at": 1699061776,
-                "name": "Support FAQ",
-                "bytes": 139920,
-                "file_counts": {
-                        "in_progress": 0,
-                        "completed": 3,
-                        "failed": 0,
-                        "cancelled": 0,
-                        "total": 3
-                    }
-                },
-            ]
+            A list of vector store dicts.
+
+        Raises:
+            Exception: If the API call fails.
         """
         logger.info("Fetching all vector stores...")
         stores_as_dicts: List[dict] = []
@@ -111,11 +113,9 @@ class StoreManager:
             after = None
             while True:
                 resp = self.client.vector_stores.list(limit=100, after=after)  # type: ignore
-                # resp.data: List[VectorStore]
                 page = [vs.model_dump() for vs in resp.data]
                 stores_as_dicts.extend(page)
                 if getattr(resp, "has_more", False):
-                    # last_id có thể có sẵn; fallback lấy id phần tử cuối
                     after = getattr(resp, "last_id", None) or (
                         resp.data[-1].id if resp.data else None
                     )
@@ -127,16 +127,27 @@ class StoreManager:
             return stores_as_dicts
         except Exception as e:
             logger.error(f"Failed to list vector stores: {e}")
-            return []
+            raise
 
     def _list_store_id(self) -> List[Any]:
+        """Helper: Return list of all vector store IDs."""
         all_stores = self.list_store()
-        if all_stores:
-            return [s.get("id") for s in all_stores]
-        return []
+        return [s.get("id") for s in all_stores] if all_stores else []
 
     def delete(self, store_id: str) -> bool:
-        """Deletes a vector store by its ID. Returns True if successful."""
+        """Delete a vector store by its ID.
+
+        Ref: https://platform.openai.com/docs/api-reference/vector-stores/delete
+
+        Args:
+            store_id: ID of the vector store.
+
+        Returns:
+            True if the store was deleted, False otherwise.
+
+        Raises:
+            Exception: If the API call fails.
+        """
         logger.info(f"Attempting to delete vector store with ID: {store_id}...")
         try:
             response = self.client.vector_stores.delete(vector_store_id=store_id)
@@ -150,13 +161,4 @@ class StoreManager:
                 return False
         except Exception as e:
             logger.error(f"Failed to delete vector store {store_id}: {e}")
-            return False
-        
-    def attach_to_assistant(self, assistant_id: str, list_store_id:List[str]):
-        """
-        Gắn vector store vào Assistant (beta.assistants API).
-        """
-        return self.client.beta.assistants.update(
-            assistant_id=assistant_id,
-            tool_resources={"file_search": {"vector_store_ids": list_store_id}},
-        )
+            raise

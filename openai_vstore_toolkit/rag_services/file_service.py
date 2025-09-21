@@ -273,7 +273,7 @@ class FileService:
         try:
             response = self.client.responses.create(
                 model=model,
-                instructions="You are a helpful vietnamese assistant that always answer in vietnamese",
+                instructions="You are a helpful Vietnamese assistant who always responds in fluent, natural Vietnamese.\n\nOnly answer questions using information returned by the file_search tool.\n\nIf file_search returns no result or lacks enough information, reply only: 'No Answer.\n\nDo not guess or use outside knowledge.\n\nIf the file_search result includes a relevant table, you may include it in Markdown format if it helps clarify your answer.\n\nKeep your answers accurate, concise, and clearly structured in Vietnamese. Prioritize clarity and usefulness for the reader.",
                 input=query,
                 tools=[
                     {
@@ -284,7 +284,7 @@ class FileService:
                 ],
                 include=["file_search_call.results"],
             )
-            logger.debug(f"Response:\n{response}")
+            # logger.debug(f"Response:\n{response}")
             sources = set()
             for output in response.output:
                 if output.type == "file_search_call" and output.results:

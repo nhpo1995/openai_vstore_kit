@@ -11,7 +11,7 @@ client = OpenAI()
 sm = StoreService(client=client)
 
 list_store_id = sm._list_store_id()[0]
-
+#https://cdn.openai.com/API/docs/deep_research_blog.pdf
 
 def add_file(file_path: str, store_id: str) -> str | None:
     try:

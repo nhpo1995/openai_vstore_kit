@@ -50,7 +50,7 @@ class ResponseRAGService:
         model: str,
         input_text: str,
         top_k: int | None,
-        instructions: Optional[str] | NotGiven = NOT_GIVEN,
+        instructions: str | None | NotGiven = NOT_GIVEN,
         metadata: Metadata | NotGiven = NOT_GIVEN,
         score_threshold: float | None,
     ) -> Response:
@@ -85,7 +85,8 @@ class ResponseRAGService:
                 file_search_tool["ranking_options"] = ranker
             if top_k:
                 file_search_tool["max_num_results"] = top_k
-
+            if not isinstance(instructions, str):
+                instructions = "You are a helpful Vietnamese assistant who always responds in fluent, natural Vietnamese.\n\nOnly answer questions using information returned by the file_search tool.\n\nIf file_search returns no result or lacks enough information to answer, respond only with: 'No Answer'.\n\nDo not use external knowledge or guess.\n\nIf file_search includes a table relevant to the question, include that table in your answer in clean Markdown format.\n\nYour answers must be:\n- Accurate to the source\n- Clear, natural, and concise in Vietnamese\n- Structured and readable\n\nNever skip a table if present. Never speculate. Stay strictly within the given data."
             response = self._client.responses.create(
                 model=model,
                 input=input_text,

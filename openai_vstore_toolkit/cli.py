@@ -20,6 +20,8 @@ load_dotenv()
 
 from .rag_services import StoreService
 from .rag_services import FileService
+from .rag_services import ResponseRAGService
+from .rag_services import ConversationService
 
 # Top-level app
 app = typer.Typer(
@@ -275,7 +277,7 @@ def file_delete(
 
 @file_app.command(
     "semantic-retrieve",
-    help='vstore file semantic-retrieve <store_id> "Summarize vacation policy" --model gpt-4o-mini --top-k[optional] 10',
+    help='vstore file semantic-retrieve <store_id> "Summarize vacation policy" --model[optional] gpt-4o-mini --top-k[optional] 10',
 )
 def file_semantic_retrieve(
     store_id: str = typer.Argument(...),

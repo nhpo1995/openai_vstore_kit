@@ -509,7 +509,7 @@ wheels = [
 [[package]]
 name = "openai-sdk-test"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "fastapi", extra = ["standard"] },
     { name = "loguru" },
@@ -518,6 +518,8 @@ dependencies = [
     { name = "pip" },
     { name = "python-dotenv" },
     { name = "requests" },
+    { name = "rich" },
+    { name = "typer" },
 ]
 
 [package.metadata]
@@ -529,6 +531,8 @@ requires-dist = [
     { name = "pip", specifier = ">=25.2" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "requests", specifier = ">=2.32.5" },
+    { name = "rich", specifier = ">=14.1.0" },
+    { name = "typer", specifier = ">=0.19.1" },
 ]
 
 [[package]]

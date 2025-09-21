@@ -1,9 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
+
 [project]
 name = "openai-sdk-test"
 version = "0.1.0"
-description = "Add your description here"
+description = "CLI for managing vector stores & files"
 readme = "README.md"
 requires-python = ">=3.12"
+tool.uv.package = true
 dependencies = [
     "fastapi[standard]>=0.117.1",
     "loguru>=0.7.3",
@@ -12,4 +20,12 @@ dependencies = [
     "pip>=25.2",
     "python-dotenv>=1.1.1",
     "requests>=2.32.5",
+    "rich>=14.1.0",
+    "typer>=0.19.1",
 ]
+
+[project.scripts]
+vstore = "openai_vstore_toolkit.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["openai_vstore_toolkit"]

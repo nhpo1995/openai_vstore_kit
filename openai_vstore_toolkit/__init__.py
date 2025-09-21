@@ -1,4 +1,4 @@
-from rag_services import (
+from .rag_services import (
     StoreService,
     ConversationService,
     FileService,

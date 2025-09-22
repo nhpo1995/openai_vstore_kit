@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Optional, Union
+import re
+from typing import Dict, List, Optional, Union
 from openai import OpenAI, NOT_GIVEN, NotGiven
 from openai.types import (
     FileChunkingStrategyParam,
@@ -15,9 +16,17 @@ from openai.types.responses import (
 from openai.types.responses.response_file_search_tool_call import Result
 import requests
 from io import BytesIO
+import mimetypes
+import magic
 import os
-from openai_vstore_toolkit._exceptions import DuplicateFileNameError
-from models import ResultDetail, FileSearchResponse
+import urllib.parse
+from openai_vstore_toolkit._exceptions import (
+    DuplicateFileNameError,
+    FileExtensionError,
+    FileExtensionError,
+)
+from openai_vstore_toolkit._models import ResultDetail, FileSearchResponse, FileDetail
+from openai_vstore_toolkit._helpers import Helpers
 
 
 class FileService:
@@ -31,6 +40,7 @@ class FileService:
             raise ValueError("store_id cannot be empty when initializing FileManager.")
         self._client = client
         self._store_id = store_id
+        self._helper = Helpers()
 
     def create_file_object(
         self,
@@ -50,22 +60,16 @@ class FileService:
             Exception: If upload fails.
         """
         try:
-            if file_path.startswith("http://") or file_path.startswith("https://"):
-                # Download the file content from the URL
-                response = requests.get(file_path)
-                file_content = BytesIO(response.content)
-                file_name = file_path.split("/")[-1]
-                file_tuple = (file_name, file_content)
-                file_response = self._client.files.create(
-                    file=file_tuple, purpose=purpose
-                )
-            else:
-                # Handle local file path
-                with open(file_path, mode="rb") as file_content:
-                    file_name = os.path.basename(file_path)
-                    file_response = self._client.files.create(
-                        file=(file_name, file_content), purpose=purpose
-                    )
+            file_details = self._helper.get_file_detail(file_paths=[file_path])
+            file_detail = file_details[0]
+            logger.debug(f"file_detail: {file_detail}")
+            if not file_detail:
+                raise FileExtensionError("Failed to get file detail.")
+            file_name = file_detail.file_name
+            file_content = file_detail.content
+            file_response = self._client.files.create(
+                file=(file_name, file_content), purpose=purpose
+            )
             return file_response
         except Exception as e:
             logger.error(f"Failed to create file object from '{file_path}': {e}")
@@ -156,7 +160,7 @@ class FileService:
         logger.info(f"Fetching all files from vector store {self._store_id}...")
         files_as_dicts: List[dict] = []
         try:
-            after = None
+            after = NotGiven = NOT_GIVEN
             while True:
                 resp = self._client.vector_stores.files.list(
                     vector_store_id=self._store_id, limit=limit, after=after
@@ -278,7 +282,7 @@ class FileService:
         try:
             response = self._client.responses.create(
                 model=model,
-                instructions="You are a helpful RAG assistant who always responds in fluent, natural Vietnamese and natural English.\n\nOnly answer questions using information returned by the file_search tool.\n\nIf file_search returns no result or lacks enough information, reply only: 'No Answer.\n\nDo not guess or use outside knowledge.\n\nIf the file_search result includes a relevant table, you may include it in Markdown format if it helps clarify your answer.\n\nKeep your answers accurate, concise, and clearly structured in the language of user. Prioritize clarity and usefulness for the reader.",
+                instructions="You are a helpful RAG assistant who always responds in fluent, natural Vietnamese and natural English.\n\nOnly answer questions using information returned by the file_search tool.\n\nIf file_search returns no result or lacks enough information, reply only: 'No answer.\n\nDo not guess or use outside knowledge.\n\nIf the file_search result includes a relevant table, you may include it in Markdown format if it helps clarify your answer.\n\nKeep your answers accurate, concise, and clearly structured in the language of user. Prioritize clarity and usefulness for the reader.",
                 input=query,
                 tools=[
                     {
@@ -289,20 +293,14 @@ class FileService:
                 ],
                 include=["file_search_call.results"],
             )
-            logger.debug(f"Response:\n{response}")
-            sources = set()
-            for output in response.output:
-                if output.type == "file_search_call" and output.results:
-                    for result in output.results:
-                        sources.add(result.filename)
-            sources_text = f"References:\n{'\n\n'.join(sources)}"
-            return f"{sources_text}\n\nanswer:\n{response.output_text}"
+            # logger.debug(f"Response:\n{response}")
+            return FileService._final_answer_with_guardrails(response=response)
         except Exception as e:
             logger.error(f"Failed to semantic_retrieve on store {self._store_id}: {e}")
             raise
 
     @staticmethod
-    def extract_sources(response) -> List[str]:
+    def extract_sources(response) -> List[FileSearchResponse]:
         """
         Extract referenced filenames from a Response (file_search results).
 
@@ -310,25 +308,22 @@ class FileService:
             response: The Response object to inspect.
 
         Returns:
-            List[str]: A sorted list of unique filenames referenced in file_search outputs.
-            Returns an empty list on parsing errors.
+            List[FileSearchResponse]: A List of FileSearchResponse objects.
+            FileSearchResponse{
+                file_id: The unique ID of the file
+                detail: List[ResultDetail] {
+                    attributes: file's attributes
+                    quote: content of the file
+                    score: Optional[float] = None
+                }
+            }
 
         Raises:
             None
         """
         try:
             keys: set = set()
-            sources: List[ResultDetail] = []
-            for output in getattr(response, "output", []) or []:
-                if getattr(output, "type", None) == "file_search_call" and getattr(
-                    output, "results", None
-                ):
-                    for res in output.results:
-                        fname = getattr(res, "filename", None)
-                        if fname:
-                            sources.add(fname)
-
-            # return sorted(sources)
+            sources: List[FileSearchResponse] = []
             for output in getattr(response, "output", []) or []:
                 if (
                     isinstance(output, ResponseFileSearchToolCall)
@@ -341,17 +336,25 @@ class FileService:
                             keys.add(result.file_id)
                             result_detail = ResultDetail(
                                 attributes=result.attributes,
-                                text=result.text,
+                                file_name=result.filename,
+                                quote=result.text,
                                 score=result.score,
                             )
-                            response = FileSearchResponse(
-                                file_id=file_id, 
-                                detail=result_detail,
+                            search_response = FileSearchResponse(
+                                file_id=file_id, details=[result_detail]
                             )
-                            sources.append(result_detail)
+                            sources.append(search_response)
                         else:
-                            
-
+                            result_detail = ResultDetail(
+                                attributes=result.attributes,
+                                file_name=result.filename,
+                                quote=result.text,
+                                score=result.score,
+                            )
+                            for source in sources:
+                                if source.file_id == file_id:
+                                    source.details.append(result_detail)
+            return sources
 
         except Exception:
             return []
@@ -369,8 +372,14 @@ class FileService:
             the model's textual output.
         """
         sources = FileService.extract_sources(response=response)
-        text = response.output_text
-        if sources is not []:
+        quotes = ""
+        for source in sources:
+            quotes += f"File name: {source.file_id}\n"
+            for d in source.details:
+                quotes += f"Quote: {d.quote}\n"
+        if quotes == "":
             return "No answer"
-        else:
-            return f"References:\n{'\n'.join(sources)}\n\nAI:{text}"
+        text = response.output_text
+        if text == "" or text == "No answer":
+            return "No answer"
+        return f"References:\n{quotes}\n\nAI:{text}"

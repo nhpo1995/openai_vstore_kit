@@ -176,7 +176,8 @@ class ResponseRAGService:
         except Exception:
             return []
 
-    def _final_answer_with_guardrails(self, response: Response) -> str:
+    @staticmethod
+    def _final_answer_with_guardrails(response: Response) -> str:
         """
         Compose a final answer string with basic guardrails and references.
 

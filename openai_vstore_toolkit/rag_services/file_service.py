@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from openai import OpenAI, NOT_GIVEN, NotGiven
 from openai.types import (
     FileChunkingStrategyParam,
@@ -7,12 +7,17 @@ from openai.types import (
     StaticFileChunkingStrategyObjectParam,
 )
 from loguru import logger
-from openai.types.responses.response import Response
-from openai.types.responses.response_output_item import ResponseOutputItem
+from openai.types.responses import (
+    Response,
+    ResponseOutputItem,
+    ResponseFileSearchToolCall,
+)
+from openai.types.responses.response_file_search_tool_call import Result
 import requests
 from io import BytesIO
 import os
 from openai_vstore_toolkit._exceptions import DuplicateFileNameError
+from models import ResultDetail, FileSearchResponse
 
 
 class FileService:
@@ -24,8 +29,8 @@ class FileService:
     def __init__(self, client: OpenAI, store_id: str):
         if not store_id:
             raise ValueError("store_id cannot be empty when initializing FileManager.")
-        self.client = client
-        self.store_id = store_id
+        self._client = client
+        self._store_id = store_id
 
     def create_file_object(
         self,
@@ -51,14 +56,14 @@ class FileService:
                 file_content = BytesIO(response.content)
                 file_name = file_path.split("/")[-1]
                 file_tuple = (file_name, file_content)
-                file_response = self.client.files.create(
+                file_response = self._client.files.create(
                     file=file_tuple, purpose=purpose
                 )
             else:
                 # Handle local file path
                 with open(file_path, mode="rb") as file_content:
                     file_name = os.path.basename(file_path)
-                    file_response = self.client.files.create(
+                    file_response = self._client.files.create(
                         file=(file_name, file_content), purpose=purpose
                     )
             return file_response
@@ -109,7 +114,7 @@ class FileService:
             Exception: If the operation fails (duplicate or API error).
         """
         logger.info(
-            f"Adding file '{file_object.filename}' to vector store {self.store_id}..."
+            f"Adding file '{file_object.filename}' to vector store {self._store_id}..."
         )
         try:
             file_id = self.find_id_by_name(file_object.filename)
@@ -120,15 +125,15 @@ class FileService:
             )
             base_attrs = {"file_name": file_object.filename.lower()}
             merged_attrs = {**base_attrs, **(attributes or {})}
-            vector_store_file = self.client.vector_stores.files.create_and_poll(
-                vector_store_id=self.store_id,
+            vector_store_file = self._client.vector_stores.files.create_and_poll(
+                vector_store_id=self._store_id,
                 file_id=file_object.id,
                 chunking_strategy=chunking_strategy,
                 attributes=merged_attrs,
             )
             if vector_store_file:
                 logger.success(
-                    f"Successfully attached file {vector_store_file.id} to store {self.store_id}."
+                    f"Successfully attached file {vector_store_file.id} to store {self._store_id}."
                 )
                 return vector_store_file.id
             return None
@@ -148,13 +153,13 @@ class FileService:
         Raises:
             Exception: If the API call fails.
         """
-        logger.info(f"Fetching all files from vector store {self.store_id}...")
+        logger.info(f"Fetching all files from vector store {self._store_id}...")
         files_as_dicts: List[dict] = []
         try:
             after = None
             while True:
-                resp = self.client.vector_stores.files.list(
-                    vector_store_id=self.store_id, limit=limit, after=after  # type: ignore
+                resp = self._client.vector_stores.files.list(
+                    vector_store_id=self._store_id, limit=limit, after=after
                 )
                 page = [f.model_dump() for f in resp.data]
                 files_as_dicts.extend(page)
@@ -170,7 +175,7 @@ class FileService:
                 logger.info(f"Found {len(files_as_dicts)} files.")
             return files_as_dicts
         except Exception as e:
-            logger.error(f"Failed to list files for store {self.store_id}: {e}")
+            logger.error(f"Failed to list files for store {self._store_id}: {e}")
             raise
 
     def find_id_by_name(self, file_name: str) -> str:
@@ -212,8 +217,8 @@ class FileService:
             Exception: If the API call fails.
         """
         try:
-            result = self.client.vector_stores.files.update(
-                vector_store_id=self.store_id, file_id=file_id, attributes=attribute
+            result = self._client.vector_stores.files.update(
+                vector_store_id=self._store_id, file_id=file_id, attributes=attribute
             )
             if result and isinstance(result.attributes, dict):
                 if all(
@@ -240,11 +245,11 @@ class FileService:
             Exception: If the API call fails.
         """
         logger.info(
-            f"Attempting to delete file {file_id} from store {self.store_id}..."
+            f"Attempting to delete file {file_id} from store {self._store_id}..."
         )
         try:
-            response = self.client.vector_stores.files.delete(
-                vector_store_id=self.store_id, file_id=file_id
+            response = self._client.vector_stores.files.delete(
+                vector_store_id=self._store_id, file_id=file_id
             )
             if response.deleted:
                 logger.success(f"Successfully deleted file {file_id}.")
@@ -271,20 +276,20 @@ class FileService:
             Exception: If the API call fails.
         """
         try:
-            response = self.client.responses.create(
+            response = self._client.responses.create(
                 model=model,
-                instructions="You are a helpful Vietnamese assistant who always responds in fluent, natural Vietnamese.\n\nOnly answer questions using information returned by the file_search tool.\n\nIf file_search returns no result or lacks enough information, reply only: 'No Answer.\n\nDo not guess or use outside knowledge.\n\nIf the file_search result includes a relevant table, you may include it in Markdown format if it helps clarify your answer.\n\nKeep your answers accurate, concise, and clearly structured in Vietnamese. Prioritize clarity and usefulness for the reader.",
+                instructions="You are a helpful RAG assistant who always responds in fluent, natural Vietnamese and natural English.\n\nOnly answer questions using information returned by the file_search tool.\n\nIf file_search returns no result or lacks enough information, reply only: 'No Answer.\n\nDo not guess or use outside knowledge.\n\nIf the file_search result includes a relevant table, you may include it in Markdown format if it helps clarify your answer.\n\nKeep your answers accurate, concise, and clearly structured in the language of user. Prioritize clarity and usefulness for the reader.",
                 input=query,
                 tools=[
                     {
                         "type": "file_search",
-                        "vector_store_ids": [self.store_id],
+                        "vector_store_ids": [self._store_id],
                         "max_num_results": top_k,
                     }
                 ],
                 include=["file_search_call.results"],
             )
-            # logger.debug(f"Response:\n{response}")
+            logger.debug(f"Response:\n{response}")
             sources = set()
             for output in response.output:
                 if output.type == "file_search_call" and output.results:
@@ -293,5 +298,79 @@ class FileService:
             sources_text = f"References:\n{'\n\n'.join(sources)}"
             return f"{sources_text}\n\nanswer:\n{response.output_text}"
         except Exception as e:
-            logger.error(f"Failed to semantic_retrieve on store {self.store_id}: {e}")
+            logger.error(f"Failed to semantic_retrieve on store {self._store_id}: {e}")
             raise
+
+    @staticmethod
+    def extract_sources(response) -> List[str]:
+        """
+        Extract referenced filenames from a Response (file_search results).
+
+        Args:
+            response: The Response object to inspect.
+
+        Returns:
+            List[str]: A sorted list of unique filenames referenced in file_search outputs.
+            Returns an empty list on parsing errors.
+
+        Raises:
+            None
+        """
+        try:
+            keys: set = set()
+            sources: List[ResultDetail] = []
+            for output in getattr(response, "output", []) or []:
+                if getattr(output, "type", None) == "file_search_call" and getattr(
+                    output, "results", None
+                ):
+                    for res in output.results:
+                        fname = getattr(res, "filename", None)
+                        if fname:
+                            sources.add(fname)
+
+            # return sorted(sources)
+            for output in getattr(response, "output", []) or []:
+                if (
+                    isinstance(output, ResponseFileSearchToolCall)
+                    and getattr(output, "results", None)
+                    and output.results
+                ):
+                    for result in output.results:
+                        file_id = result.file_id
+                        if file_id not in keys:
+                            keys.add(result.file_id)
+                            result_detail = ResultDetail(
+                                attributes=result.attributes,
+                                text=result.text,
+                                score=result.score,
+                            )
+                            response = FileSearchResponse(
+                                file_id=file_id, 
+                                detail=result_detail,
+                            )
+                            sources.append(result_detail)
+                        else:
+                            
+
+
+        except Exception:
+            return []
+
+    @staticmethod
+    def _final_answer_with_guardrails(response: Response) -> str:
+        """
+        Compose a final answer string with basic guardrails and references.
+
+        Args:
+            response: The Response object returned by the API.
+
+        Returns:
+            str: A formatted string that includes referenced sources (if any) and
+            the model's textual output.
+        """
+        sources = FileService.extract_sources(response=response)
+        text = response.output_text
+        if sources is not []:
+            return "No answer"
+        else:
+            return f"References:\n{'\n'.join(sources)}\n\nAI:{text}"

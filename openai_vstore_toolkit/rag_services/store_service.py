@@ -10,7 +10,7 @@ class StoreService:
     """
 
     def __init__(self, client: OpenAI):
-        self.client = client
+        self._client = client
 
     def get_or_create(self, store_name: str) -> str:
         """Get or create a vector store by name.
@@ -65,7 +65,7 @@ class StoreService:
         """
         logger.info(f"Creating a new vector store named '{store_name}'...")
         try:
-            vector_store = self.client.vector_stores.create(name=store_name)
+            vector_store = self._client.vector_stores.create(name=store_name)
             logger.success(
                 f"Successfully created vector store '{store_name}' with ID: {vector_store.id}"
             )
@@ -90,7 +90,7 @@ class StoreService:
         """
         logger.info(f"Fetching details for vector store {store_id}...")
         try:
-            vector_store = self.client.vector_stores.retrieve(vector_store_id=store_id)
+            vector_store = self._client.vector_stores.retrieve(vector_store_id=store_id)
             return vector_store.model_dump()
         except Exception as e:
             logger.error(f"Failed to retrieve vector store {store_id}: {e}")
@@ -112,7 +112,7 @@ class StoreService:
         try:
             after = None
             while True:
-                resp = self.client.vector_stores.list(limit=100, after=after)  # type: ignore
+                resp = self._client.vector_stores.list(limit=100, after=after)  # type: ignore
                 page = [vs.model_dump() for vs in resp.data]
                 stores_as_dicts.extend(page)
                 if getattr(resp, "has_more", False):
@@ -150,7 +150,7 @@ class StoreService:
         """
         logger.info(f"Attempting to delete vector store with ID: {store_id}...")
         try:
-            response = self.client.vector_stores.delete(vector_store_id=store_id)
+            response = self._client.vector_stores.delete(vector_store_id=store_id)
             if response.deleted:
                 logger.success(f"Successfully deleted vector store {store_id}.")
                 return True

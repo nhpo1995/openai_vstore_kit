@@ -23,6 +23,8 @@ from .rag_services import FileService
 from .rag_services import ResponseRAGService
 from .rag_services import ConversationService
 
+from openai_vstore_toolkit.utils import Helpers
+
 # Top-level app
 app = typer.Typer(
     help="CLI to manage Vector Stores & Vector Store Files (based on your repo code)",
@@ -200,10 +202,10 @@ def file_find_id_by_name(
 
 
 @file_app.command(
-    "upload-and-add",
-    help='vstore file upload-and-add <store_id> "./docs/handbook.pdf" or <url> --attr[optional] source=internal --attr[optional] lang=vi --max-chunk-size[optional] 800 --chunk-overlap[optional] 400',
+    "upload",
+    help='vstore file upload <store_id> "./docs/handbook.pdf" or <url> --attr[optional] source=internal --attr[optional] lang=vi --max-chunk-size[optional] 800 --chunk-overlap[optional] 400',
 )
-def file_upload_and_add(
+def file_upload(
     store_id: str = typer.Argument(...),
     path_or_url: str = typer.Argument(..., help="Local file path or URL"),
     use_url: bool = typer.Option(False, "--url", help="Set if path_or_url is a URL"),
@@ -292,6 +294,19 @@ def file_semantic_retrieve(
     fsvc = FileService(client, store_id)
     out = fsvc.semantic_retrieve(query=query, model=model, top_k=top_k)
     rprint(out)
+
+
+@file_app.command(
+    "get_detail",
+    help='vstore file get_detail "./docs/handbook.pdf" or <url>',
+)
+def get_file_detail(
+    file_path: str = typer.Argument(...),
+):
+    """Call FileService.semantic_retrieve(query, model, top_k) and print the formatted output."""
+    helper = Helpers()
+    file_detail = helper.get_file_detail([file_path])
+    rprint(file_detail[0] if file_detail else None)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,32 @@
+TIÊU ĐỀ: Tệp kiểm thử với nội dung thật (UTF-8)
+
+Thời gian tạo: 2025-08-28 01:49:28
+Mô tả: Đây là tệp .txt dùng để kiểm thử đọc/ghi, mã hóa UTF-8 và xử lý văn bản tiếng Việt.
+Bạn có thể dùng tệp này để thử upload, tải xuống, tìm kiếm, hoặc kiểm tra hiển thị phông chữ.
+
+I. Mục đích
+1) Có nội dung thực tế, không phải văn bản mẫu vô nghĩa.
+2) Chứa dấu tiếng Việt: ă â ê ô ơ ư đ, và ký tự đặc biệt: % # @ ~ ^
+3) Dùng được cho nhiều trường hợp kiểm thử (đếm dòng, so khớp mẫu, v.v.).
+
+II. Nội dung mẫu
+- Dòng ngắn: "Xin chào, đây là một dòng ngắn."
+- Dòng có dấu: "Cà phê sữa đá là món ưa thích của nhiều người Việt Nam."
+- Dòng dài để kiểm thử word-wrapping trong trình xem văn bản: 
+  "Khi xử lý một tệp văn bản dài, ứng dụng cần đảm bảo việc xuống dòng, 
+  mã hóa ký tự, và giữ nguyên định dạng UTF-8 mà không lỗi hiển thị."
+
+III. Dữ liệu có cấu trúc (CSV giả lập)
+id,ho_ten,email
+1,Nguyen Van A,nguyenvana@example.com
+2,Tran Thi B,tranthib@example.com
+3,Le Cong C,lecongc@example.com
+
+IV. Đoạn văn
+Trong kỷ nguyên số, dữ liệu văn bản chiếm tỷ lệ lớn trong luồng thông tin. 
+Việc kiểm thử tệp .txt giúp đảm bảo hệ thống tương thích đa nền tảng, 
+đặc biệt khi làm việc với tiếng Việt và các ký tự Unicode.
+
+V. Kết thúc
+Nếu bạn đọc được các dấu tiếng Việt hiển thị đúng, tệp đã đạt yêu cầu "nội dung thật".
+-- Hết --

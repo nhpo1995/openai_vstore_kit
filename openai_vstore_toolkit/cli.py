@@ -23,7 +23,7 @@ from .rag_services import FileService
 from .rag_services import ResponseRAGService
 from .rag_services import ConversationService
 
-from openai_vstore_toolkit.utils import Helpers
+from openai_vstore_toolkit.utils import Helper
 
 # Top-level app
 app = typer.Typer(
@@ -304,7 +304,7 @@ def get_file_detail(
     file_path: str = typer.Argument(...),
 ):
     """Call FileService.semantic_retrieve(query, model, top_k) and print the formatted output."""
-    helper = Helpers()
+    helper = Helper()
     file_detail = helper.get_file_detail([file_path])
     rprint(file_detail[0] if file_detail else None)
 

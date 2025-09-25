@@ -17,7 +17,9 @@ SOFFICE_BIN = _which("soffice") or _which("libreoffice")
 OCR_AVAILABLE = False  # luôn false vì đã bỏ logic ảnh
 
 # Final indexable formats used by the File Search tool
-from ._supported import INDEXABLE_EXT as INDEXABLE
+from openai_vstore_toolkit.utils._file_type import get_indexable_ext
+
+INDEXABLE = get_indexable_ext()
 
 # Tuning for large tables → split Markdown chunks
 MAX_ROWS_PER_MD = 2000

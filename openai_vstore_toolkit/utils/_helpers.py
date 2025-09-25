@@ -1,3 +1,15 @@
+"""High-level helper functions for file processing.
+
+This module provides the main business logic for retrieving and preparing
+files from various sources for further use.
+
+Features:
+    - Handles file retrieval from both remote URLs and local file paths.
+    - Orchestrates the full processing pipeline: fetches content, detects
+        the true file type, and validates it.
+    - Returns a standardized `FileDetail` object, ready for consumption.
+"""
+
 import os
 import re
 import urllib.parse
@@ -9,13 +21,12 @@ import requests
 from requests.exceptions import RequestException
 from openai_vstore_toolkit.utils._detector import DetectedType, FileTypeDetector
 from openai_vstore_toolkit.utils._models import FileDetail
-from openai_vstore_toolkit.utils._supported import (
+from openai_vstore_toolkit.utils._file_type import (
     is_supported_ext,
-    is_supported_mime,
 )
 
 
-class Helpers:
+class Helper:
     """
     Helper functions for file processing, including determining MIME types,
     extracting extensions, and handling file content retrieval from URLs or local paths.
@@ -31,7 +42,7 @@ class Helpers:
         return os.path.splitext(name)[0]  # drop possibly fake ext
 
     @staticmethod
-    def get_detail_from_url(url: str) -> Optional[FileDetail]:
+    def _get_detail_from_url(url: str) -> Optional[FileDetail]:
         try:
             with requests.get(url, stream=True) as resp:
                 resp.raise_for_status()
@@ -50,11 +61,9 @@ class Helpers:
                 detail: DetectedType = FileTypeDetector.detect(
                     content=content, original_name=original_name
                 )
-                basename = Helpers._basename_from_url(url=url, fallback=original_name)
+                basename = Helper._basename_from_url(url=url, fallback=original_name)
                 filename = f"{basename}.{detail.ext}"
-                if not is_supported_ext(ext=detail.ext) and not is_supported_mime(
-                    mime=detail.mime
-                ):
+                if not is_supported_ext(ext=detail.ext):
                     logger.warning(
                         f"Not directly indexable by File Search: ext={detail.ext}, mime={detail.mime}"
                     )
@@ -68,7 +77,7 @@ class Helpers:
             return None
 
     @staticmethod
-    def get_detail_from_local_path(file_path: str) -> Optional[FileDetail]:
+    def _get_detail_from_local_path(file_path: str) -> Optional[FileDetail]:
         if not os.path.exists(file_path):
             logger.error(f"File not found: {file_path}")
             return None
@@ -79,7 +88,7 @@ class Helpers:
             dt: DetectedType = FileTypeDetector.detect(content, original_name=base)
             filename = f"{base}{dt.ext}"
 
-            if not is_supported_ext(ext=dt.ext) and not is_supported_mime(mime=dt.mime):
+            if not is_supported_ext(ext=dt.ext):
                 logger.warning(
                     f"Not directly indexable by File Search: ext={dt.ext}, mime={dt.mime}"
                 )
@@ -97,9 +106,9 @@ class Helpers:
         details = []
         for p in file_paths:
             d = (
-                Helpers.get_detail_from_url(p)
+                Helper._get_detail_from_url(p)
                 if p.startswith(("http://", "https://"))
-                else Helpers.get_detail_from_local_path(p)
+                else Helper._get_detail_from_local_path(p)
             )
             if d:
                 logger.debug(f"detected -> name:{d.file_name}, mime:{d.mime_type}")

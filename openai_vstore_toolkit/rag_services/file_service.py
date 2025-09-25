@@ -19,13 +19,11 @@ from openai_vstore_toolkit.utils import (
     FileExtensionError,
     FileExtensionError,
     FileSearchResponse,
-    Helpers,
+    Helper,
 )
-from openai_vstore_toolkit.utils._supported import SUPPORTED_EXT, SUPPORTED_MIME
-from openai_vstore_toolkit.utils.stager import (
-    stage_for_vectorstore,
-    INDEXABLE as INDEXABLE_EXT,
-)
+from openai_vstore_toolkit.utils.stager import stage_for_vectorstore
+
+from openai_vstore_toolkit.utils._file_type import is_indexable_ext
 
 
 class FileService:
@@ -39,7 +37,7 @@ class FileService:
             raise ValueError("store_id cannot be empty when initializing FileManager.")
         self._client = client
         self._store_id = store_id
-        self._helper = Helpers()
+        self._helper = Helper()
 
     def custom_chunk_strategy(
         self,
@@ -114,7 +112,7 @@ class FileService:
         attached_ids: List[str] = []
         for sp in staged_paths:
             sp_path = Path(sp)
-            if sp_path.suffix.lower() not in INDEXABLE_EXT:
+            if not is_indexable_ext(sp_path.suffix.lower()):
                 logger.warning(f"[ingest_path] Skip non-indexable after stage: {sp}")
                 continue
             # Upload staged file

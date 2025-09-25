@@ -1,6 +1,5 @@
-# utils/_file_type.py
 """
-Single source of truth for the formats directly indexable by the OpenAI File Search tool.
+Single source of truth for the formats supported by the toolkit.
 If OpenAI updates support, update here and the rest of the pipeline will respect it.
 
 This module intentionally avoids exporting mutable globals.
@@ -10,21 +9,22 @@ Use the provided getters and helper predicates instead.
 from __future__ import annotations
 from typing import Dict, Set
 
-
-# ----------------- Supported sets (internal, do not export directly) -----------------
+# Define all supported types, mappings, and aliases as internal constants
 _SUPPORTED_EXT: Set[str] = {
-    # office / docs
     ".pdf",
     ".doc",
     ".docx",
+    ".ppt",
     ".pptx",
-    # text / markup
+    ".xls",
+    ".xlsx",
+    ".csv",
+    ".tsv",
     ".txt",
     ".md",
     ".html",
     ".json",
     ".tex",
-    # code
     ".py",
     ".js",
     ".ts",
@@ -36,20 +36,28 @@ _SUPPORTED_EXT: Set[str] = {
     ".php",
     ".go",
     ".sh",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".zip",
+    ".ole",
+    ".bin",
 }
-
-# These are the exact MIME strings we accept as "supported" in detection.
 _SUPPORTED_MIME: Set[str] = {
-    # office
+    "application/pdf",
     "application/msword",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.ms-excel",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    # text / markup / data
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "text/plain",
     "text/markdown",
     "text/html",
     "application/json",
-    # code (as requested list)
+    "text/csv",
+    "text/tab-separated-values",
+    "text/x-tex",
     "text/x-python",
     "text/x-script.python",
     "text/javascript",
@@ -62,17 +70,20 @@ _SUPPORTED_MIME: Set[str] = {
     "text/x-php",
     "text/x-golang",
     "application/x-sh",
-    "text/x-tex",
-    # common doc
-    "application/pdf",
+    "image/png",
+    "image/jpeg",
+    "application/zip",
+    "application/octet-stream",
+    "application/vnd.ms-office",
 }
-
-# Convenience set used by stager for final outputs
 _INDEXABLE_EXT: Set[str] = {
     ".pdf",
     ".doc",
     ".docx",
+    ".ppt",
     ".pptx",
+    ".xls",
+    ".xlsx",
     ".txt",
     ".md",
     ".html",
@@ -87,30 +98,26 @@ _INDEXABLE_EXT: Set[str] = {
     ".php",
     ".tex",
     ".json",
+    ".csv",
+    ".tsv",
     ".go",
     ".sh",
 }
-
-# ----------------- MIME type mappings -----------------
-# Canonical ext → canonical MIME (one canonical per ext)
 _MIME_MAP: Dict[str, str] = {
-    # office / archives still needed for detector
     ".pdf": "application/pdf",
     ".doc": "application/msword",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ".ppt": "application/vnd.ms-powerpoint",  # kept for OLE fallback
+    ".ppt": "application/vnd.ms-powerpoint",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    ".xls": "application/vnd.ms-excel",  # kept for OLE fallback
+    ".xls": "application/vnd.ms-excel",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".csv": "text/csv",
     ".tsv": "text/tab-separated-values",
-    # text / markup / data
     ".txt": "text/plain",
     ".md": "text/markdown",
     ".html": "text/html",
     ".json": "application/json",
     ".tex": "text/x-tex",
-    # code (canonical)
     ".py": "text/x-python",
     ".js": "text/javascript",
     ".ts": "application/typescript",
@@ -122,7 +129,6 @@ _MIME_MAP: Dict[str, str] = {
     ".php": "text/x-php",
     ".go": "text/x-golang",
     ".sh": "application/x-sh",
-    # binary/others
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
@@ -130,39 +136,18 @@ _MIME_MAP: Dict[str, str] = {
     ".bin": "application/octet-stream",
     ".ole": "application/vnd.ms-office",
 }
-
-# Reverse map for detection (canonical only)
 _MIME_TO_EXT: Dict[str, str] = {v: k for k, v in _MIME_MAP.items()}
-
-# ---------- Aliases & normalizations ----------
-# Some detectors or systems may return these MIME variants. We normalize them to (ext, canonical_mime).
-# IMPORTANT: All canonical_mime must appear in _SUPPORTED_MIME and in _MIME_MAP values.
 _ALIAS_MIME_TO_CANONICAL: Dict[str, tuple[str, str]] = {
-    # PDF
     "application/x-pdf": (".pdf", "application/pdf"),
-    "application/acrobat": (".pdf", "application/pdf"),
-    "application/vnd.pdf": (".pdf", "application/pdf"),
-    "application/nappdf": (".pdf", "application/pdf"),
-    # JS common alias
     "application/javascript": (".js", "text/javascript"),
-    "text/ecmascript": (".js", "text/javascript"),
-    "application/ecmascript": (".js", "text/javascript"),
-    # Python variant already supported; keep mapping anyway
     "text/x-script.python": (".py", "text/x-python"),
-    # TypeScript sometimes shows as text/x-typescript
     "text/x-typescript": (".ts", "application/typescript"),
-    # Shell may appear as text/x-sh
-    "text/x-sh": (".sh", "application/x-sh"),
 }
-
-# ZIP aliases (used in detector ZIP handling)
 _ZIP_MIME_ALIASES: Set[str] = {
     "application/zip",
     "application/x-zip-compressed",
     "multipart/x-zip",
 }
-
-# PDF aliases (for detector)
 _PDF_MIME_ALIASES: Set[str] = {
     "application/pdf",
     "application/x-pdf",
@@ -170,44 +155,24 @@ _PDF_MIME_ALIASES: Set[str] = {
     "application/vnd.pdf",
     "application/nappdf",
 }
-
-# libmagic names for OLE/CFB containers (DOC/XLS/PPT/…)
 _OLE_MIME_ALIASES: Set[str] = {
     "application/CDFV2",
     "application/x-ole-storage",
     "application/x-cfb",
     "application/vnd.ms-office",
 }
-
-# jpg oddities
-_JPEG_MIME_ALIASES: Set[str] = {
-    "image/jpeg",
-    "image/jpg",
-    "image/pjpeg",
-}
-
-# markdown alias
-_MARKDOWN_MIME_ALIASES: Set[str] = {
-    "text/markdown",
-    "text/x-markdown",
-}
-
-# csv/tsv alias
+_JPEG_MIME_ALIASES: Set[str] = {"image/jpeg", "image/jpg", "image/pjpeg"}
+_MARKDOWN_MIME_ALIASES: Set[str] = {"text/markdown", "text/x-markdown"}
 _CSV_MIME_ALIASES: Set[str] = {
     "text/csv",
     "text/x-comma-separated-values",
     "application/csv",
 }
-
-_TSV_MIME_ALIASES: Set[str] = {
-    "text/tab-separated-values",
-}
-
-# text/* catch-all prefix
+_TSV_MIME_ALIASES: Set[str] = {"text/tab-separated-values"}
 _TEXT_PREFIX: str = "text/"
 
 
-# ----------------- Getter APIs (return copies to avoid external mutation) -----------------
+# Getter functions to provide safe, read-only access to the constants
 def get_supported_ext() -> Set[str]:
     return set(_SUPPORTED_EXT)
 
@@ -264,7 +229,7 @@ def get_text_prefix() -> str:
     return _TEXT_PREFIX
 
 
-# ----------------- Helper predicates (stable API) -----------------
+# Predicate functions for easy checking
 def is_supported_ext(ext: str) -> bool:
     if not ext:
         return False
@@ -274,9 +239,7 @@ def is_supported_ext(ext: str) -> bool:
 
 
 def is_supported_mime(mime: str) -> bool:
-    if not mime:
-        return False
-    return mime.lower() in _SUPPORTED_MIME
+    return bool(mime and mime.lower() in _SUPPORTED_MIME)
 
 
 def is_indexable_ext(ext: str) -> bool:

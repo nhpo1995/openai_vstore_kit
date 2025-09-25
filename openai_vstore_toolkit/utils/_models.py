@@ -10,8 +10,9 @@ Models:
         from a file search tool call.
 """
 
+from dataclasses import dataclass
 from io import BytesIO
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from openai.types.responses.response_file_search_tool_call import Result
 
@@ -50,3 +51,20 @@ class FileDetail:
 
     def __repr__(self) -> str:
         return f"file_name='{self.file_name}' mime_type='{self.mime_type}' content=<_io.BytesIO>"
+
+
+@dataclass
+class DetectedType:
+    """Detected file infomation
+
+    Attributes:
+        ext (str): canonical extension (leading dot)
+        mime (str): MIME type
+        reason (str): debug info
+        oxml_inner (Optional[str]): "word/" | "ppt/" | "xl/" if OOXML inside ZIP
+    """
+
+    ext: str
+    mime: str
+    reason: str
+    oxml_inner: Optional[str] = None

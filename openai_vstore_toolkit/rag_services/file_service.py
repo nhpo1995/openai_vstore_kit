@@ -21,9 +21,6 @@ from openai_vstore_toolkit.utils import (
     FileSearchResponse,
     Helper,
 )
-from openai_vstore_toolkit.utils.stager import stage_for_vectorstore
-
-from openai_vstore_toolkit.utils._file_type import is_indexable_ext
 
 
 class FileService:
@@ -45,12 +42,14 @@ class FileService:
         chunk_overlap: int = 400,
     ) -> StaticFileChunkingStrategyObjectParam:
         """
-        Build a static chunking strategy object for File Search indexing.
-        - max_chunk_size: token/chunk (min 100, max 4096).
-        - chunk_overlap : must be <= half of max_chunk_size (the API yêu cầu vậy).
-
+        Create a static chunking strategy dictionary.
+        Args:
+            max_chunk_size (int): Maximum chunk size in tokens (100-4096).
+            chunk_overlap (int): Overlap size in tokens (0 to max_chunk_size/2).
+        Returns:
+            StaticFileChunkingStrategyObjectParam: The chunking strategy dict.
         Raises:
-            ValueError nếu tham số không hợp lệ.
+            ValueError: If parameters are out of valid ranges.
         """
         if max_chunk_size < 100 or max_chunk_size > 4096:
             raise ValueError("max_chunk_size must be in [100, 4096].")
@@ -69,8 +68,14 @@ class FileService:
         self, path: str, purpose: FilePurpose = "assistants"
     ) -> FileObject:
         """
-        Create FileObject from a staged path (already indexable).
-        Uses Helpers to ensure correct MIME & filename (signature-based).
+        Prepare and create a FileObject from a staged path.
+        Args:
+            path (str): The staged file path.
+            purpose (FilePurpose): The purpose for the file upload.
+        Returns:
+            FileObject: The created FileObject.
+        Raises:
+            FileExtensionError: If file detail extraction fails.
         """
         details = self._helper.get_file_detail(file_paths=[path])
         if not details or not details[0]:
@@ -88,84 +93,19 @@ class FileService:
         )
 
     # ----------------- Public: ingest with staging -----------------
-    def ingest_path(
-        self,
-        input_path: str,
-        attributes: Dict = {},
-        chunking_strategy: FileChunkingStrategyParam | NotGiven = NOT_GIVEN,
-        purpose: FilePurpose = "assistants",
-    ) -> List[str]:
-        """
-        1) Stage: convert input into indexable files (e.g., .md / .txt / .docx / .pptx / .pdf).
-        2) Upload each staged file with files.create(...)
-        3) Attach to the Vector Store via vector_stores.files.create_and_poll(...)
-        Returns: list of vector_store_file_ids.
-        """
-        p = Path(input_path)
-        logger.info(f"[ingest_path] Staging input: {p}")
-
-        staged_paths = stage_for_vectorstore(str(p))
-        if not staged_paths:
-            logger.error(f"[ingest_path] Nothing to stage from: {input_path}")
-            return []
-
-        attached_ids: List[str] = []
-        for sp in staged_paths:
-            sp_path = Path(sp)
-            if not is_indexable_ext(sp_path.suffix.lower()):
-                logger.warning(f"[ingest_path] Skip non-indexable after stage: {sp}")
-                continue
-            # Upload staged file
-            try:
-                fobj = self._prepare_and_create_file_object(sp, purpose=purpose)
-            except Exception as e:
-                logger.error(f"[ingest_path] Upload failed for {sp}: {e}")
-                continue
-            # Attach to Vector Store
-            try:
-                existing = self.find_id_by_name(fobj.filename)
-                if existing:
-                    raise DuplicateFileNameError(
-                        f"Duplicate file_name in store: {fobj.filename}"
-                    )
-
-                merged_attrs = {
-                    "file_name": fobj.filename.lower(),
-                    "source_original": p.name,
-                    "staged_from": sp_path.name,
-                    **(attributes or {}),
-                }
-
-                vs_file = self._client.vector_stores.files.create_and_poll(
-                    vector_store_id=self._store_id,
-                    file_id=fobj.id,
-                    chunking_strategy=chunking_strategy,
-                    attributes=merged_attrs,
-                )
-                if vs_file:
-                    logger.success(
-                        f"[ingest_path] Attached {vs_file.id} from staged: {sp_path.name}"
-                    )
-                    attached_ids.append(vs_file.id)
-            except Exception as e:
-                msg = str(e)
-                if "File type not supported" in msg:
-                    logger.error(
-                        "[ingest_path] File type not supported at ATTACH step. "
-                        "Ensure the staged output is one of the officially supported formats."
-                    )
-                else:
-                    logger.error(f"[ingest_path] Attach failed for {sp}: {e}")
-                continue
-
-        return attached_ids
-
     # ----------------- Legacy: create_file_object directly (no staging) -----------------
     def create_file_object(
         self, file_path: str, purpose: FilePurpose = "assistants"
     ) -> FileObject:
         """
-        Direct upload (no staging). Use ingest_path(...) for robust ingestion.
+        Create a FileObject directly from a local file path.
+        Args:
+            file_path (str): The local file path.
+            purpose (FilePurpose): The purpose for the file upload.
+        Returns:
+            FileObject: The created FileObject.
+        Raises:
+            FileExtensionError: If file detail extraction fails.
         """
         try:
             details = self._helper.get_file_detail(file_paths=[file_path])

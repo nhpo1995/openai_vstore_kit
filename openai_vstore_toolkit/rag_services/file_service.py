@@ -1,22 +1,20 @@
-import re
-from pathlib import Path
-from typing import Dict, List, Optional, Union
-from openai import OpenAI, NOT_GIVEN, NotGiven
+from typing import Dict, List, Optional
+
+from loguru import logger
+from openai import NOT_GIVEN, NotGiven, OpenAI
 from openai.types import (
     FileChunkingStrategyParam,
-    FilePurpose,
     FileObject,
+    FilePurpose,
     StaticFileChunkingStrategyObjectParam,
 )
-from loguru import logger
 from openai.types.responses import (
     Response,
     ResponseFileSearchToolCall,
 )
-from openai.types.responses.response_file_search_tool_call import Result
+
 from openai_vstore_toolkit.utils import (
     DuplicateFileNameError,
-    FileExtensionError,
     FileExtensionError,
     FileSearchResponse,
     Helper,
@@ -64,9 +62,7 @@ class FileService:
             },
         }
 
-    def _prepare_and_create_file_object(
-        self, path: str, purpose: FilePurpose = "assistants"
-    ) -> FileObject:
+    def _prepare_and_create_file_object(self, path: str, purpose: FilePurpose = "assistants") -> FileObject:
         """
         Prepare and create a FileObject from a staged path.
         Args:
@@ -79,9 +75,7 @@ class FileService:
         """
         details = self._helper.get_file_detail(file_paths=[path])
         if not details or not details[0]:
-            raise FileExtensionError(
-                f"Failed to get file detail for staged path: {path}"
-            )
+            raise FileExtensionError(f"Failed to get file detail for staged path: {path}")
         fd = details[0]
         try:
             fd.content.seek(0)
@@ -94,9 +88,7 @@ class FileService:
 
     # ----------------- Public: ingest with staging -----------------
     # ----------------- Legacy: create_file_object directly (no staging) -----------------
-    def create_file_object(
-        self, file_path: str, purpose: FilePurpose = "assistants"
-    ) -> FileObject:
+    def create_file_object(self, file_path: str, purpose: FilePurpose = "assistants") -> FileObject:
         """
         Create a FileObject directly from a local file path.
         Args:
@@ -132,9 +124,7 @@ class FileService:
         Attach an existing uploaded file to the Vector Store.
         Prefer ingest_path(...) in most cases to avoid "File type not supported".
         """
-        logger.info(
-            f"Adding file '{file_object.filename}' to vector store {self._store_id}..."
-        )
+        logger.info(f"Adding file '{file_object.filename}' to vector store {self._store_id}...")
         try:
             file_id = self.find_id_by_name(file_object.filename)
             if file_id:
@@ -151,9 +141,7 @@ class FileService:
                 attributes=merged_attrs,
             )
             if vs_file:
-                logger.success(
-                    f"Successfully attached file {vs_file.id} to store {self._store_id}."
-                )
+                logger.success(f"Successfully attached file {vs_file.id} to store {self._store_id}.")
                 return vs_file.id
             return None
         except Exception as e:
@@ -176,15 +164,11 @@ class FileService:
         try:
             after = NOT_GIVEN
             while True:
-                resp = self._client.vector_stores.files.list(
-                    vector_store_id=self._store_id, limit=limit, after=after
-                )
+                resp = self._client.vector_stores.files.list(vector_store_id=self._store_id, limit=limit, after=after)
                 page = [f.model_dump() for f in resp.data]
                 files_as_dicts.extend(page)
                 if getattr(resp, "has_more", False):
-                    after = getattr(resp, "last_id", None) or (
-                        resp.data[-1].id if resp.data else NOT_GIVEN
-                    )
+                    after = getattr(resp, "last_id", None) or (resp.data[-1].id if resp.data else NOT_GIVEN)
                     if not after:
                         break
                 else:
@@ -230,13 +214,9 @@ class FileService:
         """
         Detach a file from the Vector Store.
         """
-        logger.info(
-            f"Attempting to delete file {file_id} from store {self._store_id}..."
-        )
+        logger.info(f"Attempting to delete file {file_id} from store {self._store_id}...")
         try:
-            response = self._client.vector_stores.files.delete(
-                vector_store_id=self._store_id, file_id=file_id
-            )
+            response = self._client.vector_stores.files.delete(vector_store_id=self._store_id, file_id=file_id)
             if response.deleted:
                 logger.success(f"Successfully deleted file {file_id}.")
                 return True
@@ -246,9 +226,7 @@ class FileService:
             raise
 
     # ----------------- File-search powered retrieval -----------------
-    def semantic_retrieve(
-        self, query: str, model: str = "gpt-4o-mini", top_k: int = 10
-    ) -> Union[Response, str]:
+    def semantic_retrieve(self, query: str, model: str = "gpt-4o-mini", top_k: int = 10) -> str:
         """
         Run a file_search-powered response limited to this vector store.
         """
@@ -288,15 +266,24 @@ class FileService:
     def extract_sources(response) -> List[FileSearchResponse]:
         """
         Extract file search results from the Response object.
+        Args:
+            response (Response): The response object from the API call.
+        Returns:
+            List[FileSearchResponse]: A list of FileSearchResponse objects.
+            FileSearchResponse{
+                file_id (str | None): The unique ID of the file.
+                filename (str | None): The name of the file.
+                details (List[Result]): List of search results with details.
+            }
+        Raises:
+            None
         """
+
         try:
             seen = set()
             out: List[FileSearchResponse] = []
             for output in getattr(response, "output", []) or []:
-                if (
-                    isinstance(output, ResponseFileSearchToolCall)
-                    and output.results is not None
-                ):
+                if isinstance(output, ResponseFileSearchToolCall) and output.results is not None:
                     for result in output.results:
                         fid = result.file_id
                         if fid not in seen:
@@ -305,9 +292,7 @@ class FileService:
                                 FileSearchResponse(
                                     file_id=fid,
                                     filename=result.filename,
-                                    details=(
-                                        [result] if result is not None else [result]
-                                    ),
+                                    details=([result] if result is not None else [result]),
                                 )
                             )
                         else:
@@ -326,9 +311,7 @@ class FileService:
         sources = FileService.extract_sources(response=response)
         quotes = ""
         for source in sources:
-            quotes += (
-                f"## File name: {source.filename} | File ID: {source.file_id}\n\n---\n"
-            )
+            quotes += f"## File name: {source.filename} | File ID: {source.file_id}\n\n---\n"
             for inx, d in enumerate(source.details):
                 snippet = (d.text or "")[:100].strip()
                 quotes += f"\n### Quote {inx + 1} | Score: {getattr(d, 'score', None)}\n\n**first 100 token Content**:\n\n{snippet}...\n"

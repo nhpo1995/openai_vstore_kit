@@ -37,7 +37,6 @@ dev = [
     "ruff>=0.13.1",
 ]
 
-
 [project.scripts]
 vstore = "openai_vstore_toolkit.cli:app"
 

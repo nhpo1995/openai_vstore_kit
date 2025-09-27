@@ -26,7 +26,8 @@ from openai_vstore_toolkit.utils._detector import DetectedType, FileTypeDetector
 from openai_vstore_toolkit.utils._file_type import is_supported_ext
 from openai_vstore_toolkit.utils._models import FileDetail
 
-MAX_BYTES = 50 * 1024 * 1024  # 50 MiB hard cap for any file
+# Hard cap for any file size (50 MiB). Use 50 * 1_000_000 if you prefer decimal MB.
+MAX_BYTES = 50 * 1024 * 1024
 
 
 class Helper:
@@ -42,10 +43,8 @@ class Helper:
     # Private helpers
     # ------------------------------
     @staticmethod
-    def _read_with_cap(
-        resp: requests.Response, max_bytes: int = MAX_BYTES
-    ) -> Optional[bytes]:
-        """Stream response body with a hard size cap; return bytes or None if exceeded."""
+    def _read_url_with_cap(resp: requests.Response, max_bytes: int = MAX_BYTES) -> Optional[bytes]:
+        """Stream an HTTP response body with a hard size cap. Return bytes or None if exceeded."""
         chunks: List[bytes] = []
         total = 0
         for chunk in resp.iter_content(chunk_size=8192):
@@ -53,32 +52,45 @@ class Helper:
                 continue
             total += len(chunk)
             if total > max_bytes:
-                logger.warning(
-                    f"Content too large while streaming: {total} > {max_bytes}"
-                )
+                logger.debug(f"Content too large while streaming: {total} > {max_bytes}")
                 return None
             chunks.append(chunk)
         return b"".join(chunks)
 
     @staticmethod
+    def _read_local_with_cap(path: str, max_bytes: int = MAX_BYTES) -> Optional[bytes]:
+        """Read a local file in chunks with a hard size cap. Return bytes or None if exceeded."""
+        chunks: List[bytes] = []
+        total = 0
+        with open(path, "rb") as f:
+            while True:
+                buf = f.read(8192)
+                if not buf:
+                    break
+                total += len(buf)
+                if total > max_bytes:
+                    logger.debug(f"Local file too large while reading: {total} > {max_bytes}")
+                    return None
+                chunks.append(buf)
+        return b"".join(chunks)
+
+    @staticmethod
     def _numeric_suffix() -> str:
-        """Purely numeric suffix to avoid collisions: UTC timestamp + 6 random digits."""
+        """Return a purely numeric suffix: UTC timestamp + 6 random digits (helps avoid collisions)."""
         ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
         rand6 = "".join(random.choice("0123456789") for _ in range(6))
         return f"{ts}{rand6}"
 
     @staticmethod
     def _clean_name(raw: str) -> str:
-        """Decode %, trim quotes, and drop any path portion to avoid path traversal."""
+        """Decode percent-encoding, trim quotes, and strip any path segments (avoid traversal)."""
         s = urllib.parse.unquote(raw).strip().strip('"')
         # Split on both POSIX '/' and Windows '\' to be platform-agnostic
         s = re.split(r"[\\/]", s)[-1]
         return s
 
     @staticmethod
-    def _derive_original_name(
-        url: str, headers: Mapping[str, str], *, fallback_base: str = "download_noname"
-    ) -> str:
+    def _derive_original_name(url: str, headers: Mapping[str, str], *, fallback_base: str = "download_noname") -> str:
         """
         Unified name derivation:
         1) Content-Disposition: filename*=  → filename="..." → filename=...
@@ -91,9 +103,11 @@ class Helper:
             m = re.search(r'filename\*\s*=\s*[^\'"]+\'\'([^\s;]+)', cd, flags=re.I)
             if m:
                 return Helper._clean_name(m.group(1))
+            # filename="..."
             m = re.search(r'filename\s*=\s*"([^"]+)"', cd, flags=re.I)
             if m:
                 return Helper._clean_name(m.group(1))
+            # filename=...
             m = re.search(r'filename\s*=\s*([^";]+)', cd, flags=re.I)
             if m:
                 return Helper._clean_name(m.group(1))
@@ -187,37 +201,31 @@ class Helper:
             - Validates file type and extension against supported formats.
         """
         try:
-            with requests.get(
-                url, stream=True, timeout=(5, 30), allow_redirects=True
-            ) as resp:
+            with requests.get(url, stream=True, timeout=(5, 30), allow_redirects=True) as resp:
                 resp.raise_for_status()
 
                 # Unified original name derivation (header → URL → fallback)
                 original_name = Helper._derive_original_name(url, resp.headers)
                 logger.debug(f"Original name hint: {original_name}")
 
-                # Content-Length cap (if provided)
+                # Early header-based size cap (best-effort)
                 cl = resp.headers.get("Content-Length")
                 if cl and cl.isdigit() and int(cl) > MAX_BYTES:
-                    logger.warning(f"Content too large (header): {cl} > {MAX_BYTES}")
+                    logger.debug(f"Content too large (header): {cl} > {MAX_BYTES}")
                     return None
 
-                # Stream with hard cap
-                content = Helper._read_with_cap(resp, max_bytes=MAX_BYTES)
+                # Stream with a hard cap to protect memory even without Content-Length
+                content = Helper._read_url_with_cap(resp, max_bytes=MAX_BYTES)
                 if content is None:
                     return None
 
-                # Detect type using bytes + name hint
-                detail: DetectedType = FileTypeDetector.detect(
-                    content=content, original_name=original_name
-                )
+                # Detect real type using bytes + name hint
+                detail: DetectedType = FileTypeDetector.detect(content=content, original_name=original_name)
 
-                # Accept only directly indexable extensions
+                # Accept only directly indexable files
                 if not is_supported_ext(ext=detail.ext):
-                    logger.warning(
-                        f"Not directly indexable by File Search: ext={detail.ext}, mime={detail.mime}"
-                    )
-                    return None  # For temporary, only accept directly indexable files
+                    logger.warning(f"Not directly indexable by File Search: ext={detail.ext}, mime={detail.mime}")
+                    return None
 
                 # Build stem from derived name, then standardize with detected extension
                 stem = os.path.splitext(original_name)[0]
@@ -250,26 +258,31 @@ class Helper:
             logger.error(f"File not found: {file_path}")
             return None
         try:
-            # Check size BEFORE reading
+            # Try to check size before reading; if it fails, fall back to capped read.
             try:
                 fsize = os.path.getsize(file_path)
-                if fsize > MAX_BYTES:
-                    logger.warning(f"Local file too large: {fsize} > {MAX_BYTES}")
-                    return None
             except OSError:
-                # If size not available, proceed to read with try/except below.
-                pass
+                fsize = None
 
-            with open(file_path, "rb") as f:
-                content = f.read()
+            if fsize is not None and fsize > MAX_BYTES:
+                logger.debug(f"Local file too large: {fsize} > {MAX_BYTES}")
+                return None
+
+            if fsize is None:
+                # Unknown size → read with cap to enforce the limit.
+                content = Helper._read_local_with_cap(file_path, MAX_BYTES)
+                if content is None:
+                    return None
+            else:
+                # Size is known and within limit → safe to read fully.
+                with open(file_path, "rb") as f:
+                    content = f.read()
 
             base = os.path.splitext(os.path.basename(file_path))[0]  # drop fake ext
             detail: DetectedType = FileTypeDetector.detect(content, original_name=base)
 
             if not is_supported_ext(ext=detail.ext):
-                logger.warning(
-                    f"Not directly indexable by File Search: ext={detail.ext}, mime={detail.mime}"
-                )
+                logger.warning(f"Not directly indexable by File Search: ext={detail.ext}, mime={detail.mime}")
                 return None  # For temporary, only accept directly indexable files
 
             # Compose → standardize (keeps one '.' and validates ext)

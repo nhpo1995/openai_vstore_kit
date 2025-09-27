@@ -189,8 +189,8 @@ class ResponseRAGService:
             the model's textual output.
         """
         sources = ResponseRAGService.extract_sources(response=response)
-        text = response.output_text
-        if sources is not []:
+        text = getattr(response, "output_text", "") or ""
+        if not sources:
             return "No answer"
-        else:
-            return f"References:\n{'\n'.join(sources)}\n\nAI:{text}"
+        joined_sources = "\n".join(sources)
+        return f"References:\n{joined_sources}\n\nAI:{text}"

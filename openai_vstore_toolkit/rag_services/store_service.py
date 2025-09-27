@@ -1,6 +1,9 @@
 from typing import Any, Dict, List, Optional
-from openai import OpenAI
+
 from loguru import logger
+from openai import OpenAI
+
+from openai_vstore_toolkit.utils import Helper
 
 
 class StoreService:
@@ -11,6 +14,7 @@ class StoreService:
 
     def __init__(self, client: OpenAI):
         self._client = client
+        self._helper = Helper()
 
     def get_or_create(self, store_name: str) -> str:
         """Get or create a vector store by name.
@@ -27,7 +31,7 @@ class StoreService:
         Raises:
             Exception: If the API call fails.
         """
-        name = store_name.strip()
+        name = self._helper.standardize_store_name(store_name)
         existed_id = self.find_id_by_name(name)
         if existed_id:
             logger.info(f"Reusing existing vector store '{name}' with ID: {existed_id}")
@@ -65,6 +69,7 @@ class StoreService:
         """
         logger.info(f"Creating a new vector store named '{store_name}'...")
         try:
+            store_name = self._helper.standardize_store_name(store_name)
             vector_store = self._client.vector_stores.create(name=store_name)
             logger.success(
                 f"Successfully created vector store '{store_name}' with ID: {vector_store.id}"
@@ -96,7 +101,7 @@ class StoreService:
             logger.error(f"Failed to retrieve vector store {store_id}: {e}")
             raise
 
-    def list_store(self) -> List[dict]:
+    def list_store(self) -> List[Dict[Any, Any]]:
         """List all vector stores with automatic pagination.
 
         Ref: https://platform.openai.com/docs/api-reference/vector-stores/list
@@ -108,7 +113,7 @@ class StoreService:
             Exception: If the API call fails.
         """
         logger.info("Fetching all vector stores...")
-        stores_as_dicts: List[dict] = []
+        stores_as_dicts: List[Dict[Any, Any]] = []
         try:
             after = None
             while True:
